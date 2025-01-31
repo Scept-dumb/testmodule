@@ -1,0 +1,52 @@
+{
+    "name": "ani-cli",
+    "version": "1.0.0",
+    "author": {
+        "name": "pystardust",
+        "website": "https://github.com/pystardust/ani-cli"
+    },
+    "iconURL": "https://raw.githubusercontent.com/pystardust/ani-cli/master/ani-cli.png",
+    "stream": "HLS",
+    "language": "EN",
+    "extractor": "dub-sub",
+    "module": [
+        {
+            "search": {
+                "url": "https://gogoanime.cls/search.html",
+                "parameter": "keyword",
+                "documentSelector": "div.listupd article",
+                "title": "p.name",
+                "image": {
+                    "url": "img",
+                    "attribute": "src"
+                },
+                "href": "a"
+            },
+            "featured": {
+                "url": "https://gogoanime.cls/",
+                "documentSelector": "div.last_episodes ul.items li",
+                "title": "p.name",
+                "image": {
+                    "url": "img",
+                    "attribute": "src"
+                },
+                "href": "a"
+            },
+            "details": {
+                "baseURL": "https://gogoanime.cls",
+                "aliases": {
+                    "selector": "div.anime_info_body_bg h1",
+                    "attribute": "text"
+                },
+                "synopsis": "div.description",
+                "airdate": "span:contains(Aired)",
+                "stars": "span:contains(Rating)"
+            },
+            "episodes": {
+                "selector": "div#episode_related a",
+                "order": "reversed",
+                "pattern": "episode-\\d+$"
+            }
+        }
+    ]
+}
