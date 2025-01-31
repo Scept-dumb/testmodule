@@ -1,12 +1,8 @@
 async function searchResults(keyword) {
     try {
         const encodedKeyword = encodeURIComponent(keyword);
-        // Changed to sub
         const responseText = await fetch(`https://api.animemundo.net/api/v2/hianime/search?q=${encodedKeyword}&language=sub`);
         const data = JSON.parse(responseText);
-
-        // Changed to sub
-        const filteredAnimes = data.data.animes.filter(anime => anime.episodes.sub !== null);
         
         const transformedResults = data.data.animes.map(anime => ({
             title: anime.name,
@@ -22,6 +18,33 @@ async function searchResults(keyword) {
     }
 }
 
+async function extractDetails(url) {
+    try {
+        const match = url.match(/https:\/\/hianime\.to\/watch\/(.+)$/);
+        const encodedID = match[1];
+        const response = await fetch(`https://api.animemundo.net/api/v2/hianime/anime/${encodedID}`);
+        const data = JSON.parse(response);
+        
+        const animeInfo = data.data.anime.info;
+        const moreInfo = data.data.anime.moreInfo;
+
+        const transformedResults = [{
+            description: animeInfo.description || 'No description available',
+            aliases: `Duration: ${animeInfo.stats?.duration || 'Unknown'}`,
+            airdate: `Aired: ${moreInfo?.aired || 'Unknown'}`
+        }];
+        
+        return JSON.stringify(transformedResults);
+    } catch (error) {
+        console.log('Details error:', error);
+        return JSON.stringify([{
+        description: 'Error loading description',
+        aliases: 'Duration: Unknown',
+        airdate: 'Aired: Unknown'
+        }]);
+  }
+}
+
 async function extractEpisodes(url) {
     try {
         const match = url.match(/https:\/\/hianime\.to\/watch\/(.+)$/);
@@ -30,34 +53,29 @@ async function extractEpisodes(url) {
         const data = JSON.parse(response);
 
         const transformedResults = data.data.episodes.map(episode => ({
-            // Changed url
-            href: `https://hianime.to/watch/${encodedID}?ep=${episode.episodeId}`,
+            href: `https://hianime.to/watch/${encodedID}?ep=${episode.episodeId.split('?ep=')[1]}`,
             number: episode.number
         }));
         
         return JSON.stringify(transformedResults);
+        
     } catch (error) {
-        console.log('extractEpisodes error:', error);
-        return JSON.stringify([]);
+        console.log('Fetch error:', error);
     }    
 }
 
 async function extractStreamUrl(url) {
     try {
-        const urlObj = new URL(url);
-        const animeEpisodeId = urlObj.searchParams.get('ep');
-        if (!animeEpisodeId) throw new Error('No episode ID in URL');
-
-        // Changed to sub
-        const response = await fetch(`https://api.animemundo.net/api/v2/hianime/episode/sources?animeEpisodeId=${animeEpisodeId}&category=sub`);
-        const data = JSON.parse(response);
-        
-        const sources = data.data?.sources || [];
-        const hlsSource = sources.find(source => source.type === 'hls');
-        
-        return hlsSource ? hlsSource.url : null;
+       const match = url.match(/https:\/\/hianime\.to\/watch\/(.+)$/);
+       const encodedID = match[1];
+       const response = await fetch(`https://api.animemundo.net/api/v2/hianime/episode/sources?animeEpisodeId=${encodedID}&category=sub`);
+       const data = JSON.parse(response);
+       
+       const hlsSource = data.data.sources.find(source => source.type === 'hls');
+       
+       return hlsSource ? hlsSource.url : null;
     } catch (error) {
-        console.log('extractStreamUrl error:', error);
-        return null;
+       console.log('Fetch error:', error);
+       return null;
     }
 }
