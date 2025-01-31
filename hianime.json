@@ -1,0 +1,11 @@
+{
+    "sourceName": "Hianime",
+    "author": "IDK",
+    "iconUrl": "https://raw.githubusercontent.com/Scept-dumb/testmodule/refs/heads/main/icon.png",
+    "version": "1.0.0",
+    "language": "English (SUB)",
+    "baseUrl": "https://api.animemundo.net/",
+    "searchBaseUrl": "https://api.animemundo.net/api/v2/hianime/search?q=%s",
+    "scriptUrl": "https://raw.githubusercontent.com/Scept-dumb/testmodule/refs/heads/main/hianime.js",
+    "asyncJS": true
+}
