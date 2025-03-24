@@ -1,11 +1,18 @@
 {
-    "sourceName": "Hianime",
-    "author": "IDK",
-    "iconUrl": "https://raw.githubusercontent.com/Scept-dumb/testmodule/refs/heads/main/icon.png",
-    "version": "1.0.0",
+    "sourceName": "Aniwatch SUBS",
+    "iconUrl": "https://raw.githubusercontent.com/50n50/sources/refs/heads/main/aniwatch/iconapp.png",
+    "author": {
+        "name": "50/50",
+        "icon": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQ3122kQwublLkZ6rf1fEpUP79BxZOFmH9BSA&s"
+    },
+    "version": "1.0.1",
     "language": "English (SUB)",
-    "baseUrl": "https://api.animemundo.net/",
-    "searchBaseUrl": "https://api.animemundo.net/api/v2/hianime/search?q=%s",
+    "streamType": "HLS",
+    "quality": "1080p",
+    "baseUrl": "https://megacloud.club/",
+    "searchBaseUrl": "https://aniwatch-api-one-rosy.vercel.app/aniwatch/search?keyword=%s",
     "scriptUrl": "https://raw.githubusercontent.com/Scept-dumb/testmodule/refs/heads/main/hianime.js",
-    "asyncJS": true
+    "asyncJS": true,
+    "softsub": true,
+    "type": "anime"
 }
