@@ -22,7 +22,7 @@ async function extractStreamUrl(url) {
         let jimakuEntry;
         if (animeData.info.anilist_id) {
             const jimakuSearch = await fetch(`https://jimaku.cc/api/entries/search?anilist_id=${animeData.info.anilist_id}`, {
-                headers: { 'Authorization': 'Bearer YOUR_API_KEY' }
+                headers: { 'Authorization': 'Bearer AAAAAAAABlkuAS5Gu5CmdaJFx5GDWXpl5TGqDsn00SOfknKmwQMPEko-1w' }
             });
             const jimakuData = JSON.parse(jimakuSearch);
             jimakuEntry = jimakuData[0];
