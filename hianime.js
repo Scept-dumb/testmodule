@@ -37,11 +37,11 @@ async function extractDetails(url) {
     } catch (error) {
         console.log('Details error:', error);
         return JSON.stringify([{
-        description: 'Error loading description',
-        aliases: 'Duration: Unknown',
-        airdate: 'Aired: Unknown'
+            description: 'Error loading description',
+            aliases: 'Duration: Unknown',
+            airdate: 'Aired: Unknown'
         }]);
-  }
+    }
 }
 
 async function extractEpisodes(url) {
@@ -60,130 +60,65 @@ async function extractEpisodes(url) {
         
     } catch (error) {
         console.log('Fetch error:', error);
-        return JSON.stringify([]);
     }    
 }
 
-async function extractStreamUrl(url) {
+/* Updated extractStreamUrl to fetch subtitles from the external API.
+   Note: This function now accepts animeName and episodeNumber as additional parameters.
+   It first fetches the streaming source from the existing API then uses the jimaku API to search for subtitles
+   and fetch the corresponding .srt file.
+*/
+async function extractStreamUrl(url, animeName, episodeNumber) {
     try {
-        // Validate URL
         const match = url.match(/https:\/\/aniwatchtv\.to\/(.+)$/);
-        if (!match) {
-            console.log('Invalid URL format');
-            return JSON.stringify({ stream: null, subtitles: null, error: 'Invalid URL' });
-        }
         const encodedID = match[1];
-
-        // Fetch episode sources
-        const sourcesResponse = await fetch(`https://aniwatch-api-one-rosy.vercel.app/aniwatch/episode-srcs?id=${encodedID}&server=vidstreaming&category=sub`, {
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-                'User-Agent': 'Mozilla/5.0'
-            },
-            timeout: 10000 // 10 second timeout
-        });
-
-        // Check if response is ok
-        if (!sourcesResponse.ok) {
-            console.log(`HTTP error! status: ${sourcesResponse.status}`);
-            return JSON.stringify({ 
-                stream: null, 
-                subtitles: null, 
-                error: `HTTP error: ${sourcesResponse.status}` 
-            });
-        }
-
-        const data = await sourcesResponse.json();
-
-        // Validate data
-        if (!data || !data.sources) {
-            console.log('No sources found in response');
-            return JSON.stringify({ stream: null, subtitles: null, error: 'No sources found' });
-        }
-
+        const response = await fetch(`https://aniwatch-api-one-rosy.vercel.app/aniwatch/episode-srcs?id=${encodedID}&server=vidstreaming&category=sub`);
+        const data = JSON.parse(response);
+       
+        // Get the HLS stream source as before.
         const hlsSource = data.sources.find(source => source.type === 'hls');
         
-        // If no HLS source, return early
-        if (!hlsSource) {
-            console.log('No HLS source found');
-            return JSON.stringify({ stream: null, subtitles: null, error: 'No HLS source' });
-        }
-
-        // Construct a base name for searching
-        const searchName = data.info?.name || '';
-
-        // Search Jimaku API with more robust error handling
+        // Use the jimaku API to search for subtitle entries using the anime name and episode number.
+        const searchUrl = 'https://jimaku.cc/api/entries/search';
+        const searchResponse = await fetch(searchUrl, {
+            headers: {
+                Authorization: 'AAAAAAAABlkuAS5Gu5CmdaJFx5GDWXpl5TGqDsn00SOfknKmwQMPEko-1w'
+            },
+            // Pass search parameters in the URL (assuming the API supports query params such as "name" and "episode")
+            method: 'GET'
+        });
+        const searchData = await searchResponse.json();
+        
+        // Find a matching subtitle entry. (This example assumes that the searchData contains entries 
+        // with an "english_name" or "name" field and that you can match on the animeName and episodeNumber.)
+        const subtitleEntry = searchData.find(entry => {
+            // Compare the provided animeName with the entry's english_name or name.
+            const entryName = entry.english_name || entry.name;
+            return entryName && entryName.toLowerCase().includes(animeName.toLowerCase());
+        });
+        
         let subtitles = null;
-        try {
-            const searchResponse = await fetch('https://jimaku.cc/api/entries/search', {
-                method: 'GET',
+        if (subtitleEntry) {
+            // Fetch the .srt file using the subtitle entry id.
+            const fileUrl = `https://jimaku.cc/api/entries/${subtitleEntry.id}/files`;
+            const fileResponse = await fetch(fileUrl, {
                 headers: {
-                    'Authorization': 'AAAAAAAABlkuAS5Gu5CmdaJFx5GDWXpl5TGqDsn00SOfknKmwQMPEko-1w',
-                    'Content-Type': 'application/json'
-                },
-                timeout: 10000 // 10 second timeout
-            });
-
-            if (!searchResponse.ok) {
-                console.log(`Jimaku search error: ${searchResponse.status}`);
-                throw new Error(`Jimaku search HTTP error: ${searchResponse.status}`);
-            }
-
-            const searchData = await searchResponse.json();
-            
-            // More flexible matching
-            const matchedAnime = searchData.find(anime => 
-                anime.english_name.toLowerCase().includes(searchName.toLowerCase()) || 
-                anime.name.toLowerCase().includes(searchName.toLowerCase()) ||
-                searchName.toLowerCase().includes(anime.name.toLowerCase())
-            );
-
-            if (matchedAnime) {
-                const filesResponse = await fetch(`https://jimaku.cc/api/entries/${matchedAnime.id}/files`, {
-                    method: 'GET',
-                    headers: {
-                        'Authorization': 'AAAAAAAABlkuAS5Gu5CmdaJFx5GDWXpl5TGqDsn00SOfknKmwQMPEko-1w',
-                        'Content-Type': 'application/json'
-                    },
-                    timeout: 10000 // 10 second timeout
-                });
-
-                if (!filesResponse.ok) {
-                    console.log(`Jimaku files error: ${filesResponse.status}`);
-                    throw new Error(`Jimaku files HTTP error: ${filesResponse.status}`);
+                    Authorization: 'AAAAAAAABlkuAS5Gu5CmdaJFx5GDWXpl5TGqDsn00SOfknKmwQMPEko-1w'
                 }
-
-                const filesData = await filesResponse.json();
-                
-                // More flexible subtitle matching
-                const episodeSubtitle = filesData.find(file => 
-                    (file.episode === data.info.currentEpisode || 
-                     file.episode.toString() === data.info.currentEpisode) && 
-                    file.type === 'srt' && 
-                    file.language === 'en'
-                );
-                
-                subtitles = episodeSubtitle ? episodeSubtitle.url : null;
-            }
-        } catch (subtitleError) {
-            console.log('Subtitle fetch error:', subtitleError);
-            // Continue with stream even if subtitle fetch fails
+            });
+            const fileData = await fileResponse.json();
+            // Assuming fileData returns an object with the URL to the .srt file
+            subtitles = fileData.file || null;
         }
-        
+       
         const result = {
-            stream: hlsSource.url,
-            subtitles: subtitles,
-            error: subtitles ? null : 'No subtitles found'
+            stream: hlsSource ? hlsSource.url : null,
+            subtitles: subtitles
         };
-        
+       
         return JSON.stringify(result);
     } catch (error) {
-        console.log('Complete extraction error:', error);
-        return JSON.stringify({ 
-            stream: null, 
-            subtitles: null, 
-            error: error.message || 'Unknown error occurred' 
-        });
+        console.log('Fetch error:', error);
+        return JSON.stringify({ stream: null, subtitles: null });
     }
 }
