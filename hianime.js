@@ -4,11 +4,15 @@ async function searchResults(keyword) {
         const responseText = await fetch(`https://aniwatch-api-one-rosy.vercel.app/aniwatch/search?keyword=${encodedKeyword}`);
         const data = JSON.parse(responseText);
         
-        const transformedResults = data.animes.map(anime => ({
-            title: anime.name,
-            image: anime.img,
-            href: `https://aniwatchtv.to/${anime.id}`
-        }));
+        const transformedResults = data.animes.map(anime => {
+            // Optionally, store the title globally for later use.
+            window.animeTitle = anime.name;
+            return {
+                title: anime.name,
+                image: anime.img,
+                href: `https://aniwatchtv.to/${anime.id}`
+            };
+        });
         
         return JSON.stringify(transformedResults);
         
@@ -51,10 +55,14 @@ async function extractEpisodes(url) {
         const response = await fetch(`https://aniwatch-api-one-rosy.vercel.app/aniwatch/episodes/${encodedID}`);
         const data = JSON.parse(response);
 
-        const transformedResults = data.episodes.map(episode => ({
-            href: `https://aniwatchtv.to/${episode.episodeId}`,
-            number: episode.episodeNo
-        }));
+        const transformedResults = data.episodes.map(episode => {
+            // Optionally, store the episode number globally for later use.
+            window.episodeNumber = episode.episodeNo;
+            return {
+                href: `https://aniwatchtv.to/${episode.episodeId}`,
+                number: episode.episodeNo
+            };
+        });
         
         return JSON.stringify(transformedResults);
         
@@ -63,62 +71,66 @@ async function extractEpisodes(url) {
     }    
 }
 
-/* Updated extractStreamUrl to fetch subtitles from the external API.
-   Note: This function now accepts animeName and episodeNumber as additional parameters.
-   It first fetches the streaming source from the existing API then uses the jimaku API to search for subtitles
-   and fetch the corresponding .srt file.
+/* Updated extractStreamUrl
+   - This function no longer accepts extra parameters.
+   - Instead, it uses the globally stored values:
+       • window.animeTitle (which should be set using title: anime.name from searchResults)
+       • window.episodeNumber (which should be set using number: episode.episodeNo from extractEpisodes)
+   - It then calls the subtitle API (jimaku.cc) to fetch the corresponding .srt file.
 */
-async function extractStreamUrl(url, animeName, episodeNumber) {
+async function extractStreamUrl(url) {
     try {
-        const match = url.match(/https:\/\/aniwatchtv\.to\/(.+)$/);
-        const encodedID = match[1];
-        const response = await fetch(`https://aniwatch-api-one-rosy.vercel.app/aniwatch/episode-srcs?id=${encodedID}&server=vidstreaming&category=sub`);
-        const data = JSON.parse(response);
+       const match = url.match(/https:\/\/aniwatchtv\.to\/(.+)$/);
+       const encodedID = match[1];
+       const response = await fetch(`https://aniwatch-api-one-rosy.vercel.app/aniwatch/episode-srcs?id=${encodedID}&server=vidstreaming&category=sub`);
+       const data = JSON.parse(response);
        
-        // Get the HLS stream source as before.
-        const hlsSource = data.sources.find(source => source.type === 'hls');
-        
-        // Use the jimaku API to search for subtitle entries using the anime name and episode number.
-        const searchUrl = 'https://jimaku.cc/api/entries/search';
-        const searchResponse = await fetch(searchUrl, {
+       // Get the HLS stream source as before.
+       const hlsSource = data.sources.find(source => source.type === 'hls');
+       
+       // Use globally stored anime title and episode number.
+       const animeName = window.animeTitle;
+       const episodeNumber = window.episodeNumber;
+       
+       // Call the jimaku API to search for subtitles.
+       const searchUrl = 'https://jimaku.cc/api/entries/search';
+       const searchResponse = await fetch(searchUrl, {
             headers: {
                 Authorization: 'AAAAAAAABlkuAS5Gu5CmdaJFx5GDWXpl5TGqDsn00SOfknKmwQMPEko-1w'
             },
-            // Pass search parameters in the URL (assuming the API supports query params such as "name" and "episode")
             method: 'GET'
-        });
-        const searchData = await searchResponse.json();
-        
-        // Find a matching subtitle entry. (This example assumes that the searchData contains entries 
-        // with an "english_name" or "name" field and that you can match on the animeName and episodeNumber.)
-        const subtitleEntry = searchData.find(entry => {
-            // Compare the provided animeName with the entry's english_name or name.
+       });
+       const searchData = await searchResponse.json();
+       
+       // Find a matching subtitle entry.
+       const subtitleEntry = searchData.find(entry => {
             const entryName = entry.english_name || entry.name;
             return entryName && entryName.toLowerCase().includes(animeName.toLowerCase());
-        });
-        
-        let subtitles = null;
-        if (subtitleEntry) {
-            // Fetch the .srt file using the subtitle entry id.
-            const fileUrl = `https://jimaku.cc/api/entries/${subtitleEntry.id}/files`;
-            const fileResponse = await fetch(fileUrl, {
+       });
+       
+       let subtitles = null;
+       if (subtitleEntry) {
+           // Fetch the subtitle file using the subtitle entry id.
+           const fileUrl = `https://jimaku.cc/api/entries/${subtitleEntry.id}/files`;
+           const fileResponse = await fetch(fileUrl, {
                 headers: {
                     Authorization: 'AAAAAAAABlkuAS5Gu5CmdaJFx5GDWXpl5TGqDsn00SOfknKmwQMPEko-1w'
                 }
-            });
-            const fileData = await fileResponse.json();
-            // Assuming fileData returns an object with the URL to the .srt file
-            subtitles = fileData.file || null;
-        }
+           });
+           const fileData = await fileResponse.json();
+           // Assuming fileData returns an object with a "file" property containing the .srt file URL.
+           subtitles = fileData.file || null;
+       }
        
-        const result = {
-            stream: hlsSource ? hlsSource.url : null,
-            subtitles: subtitles
-        };
+       const result = {
+           stream: hlsSource ? hlsSource.url : null,
+           subtitles: subtitles
+       };
        
-        return JSON.stringify(result);
+       return JSON.stringify(result);
+       
     } catch (error) {
-        console.log('Fetch error:', error);
-        return JSON.stringify({ stream: null, subtitles: null });
+       console.log('Fetch error:', error);
+       return JSON.stringify({ stream: null, subtitles: null });
     }
 }
