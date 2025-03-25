@@ -1,57 +1,71 @@
-async function extractStreamUrl(url) {
+async function extractEpisodes(url) {
     try {
-        // 1. Extract Aniwatch episode ID
         const match = url.match(/https:\/\/aniwatchtv\.to\/(.+)$/);
         const encodedID = match[1];
+        const [episodesResponse, animeInfoResponse] = await Promise.all([
+            fetch(`https://aniwatch-api-one-rosy.vercel.app/aniwatch/episodes/${encodedID}`),
+            fetch(`https://aniwatch-api-one-rosy.vercel.app/aniwatch/anime/${encodedID}`)
+        ]);
+        const episodesData = JSON.parse(episodesResponse);
+        const animeInfoData = JSON.parse(animeInfoResponse);
+        const animeName = animeInfoData.info.name;
+
+        const transformedResults = episodesData.episodes.map(episode => ({
+            href: `https://aniwatchtv.to/${episode.episodeId}?animeName=${encodeURIComponent(animeName)}&episodeNumber=${episode.episodeNo}`,
+            number: episode.episodeNo
+        }));
         
-        // 2. Get stream URL from Aniwatch
-        const srcResponse = await fetch(`https://aniwatch-api-one-rosy.vercel.app/aniwatch/episode-srcs?id=${encodedID}&server=vidstreaming&category=sub`);
-        const srcData = JSON.parse(srcResponse);
-        const hlsSource = srcData.sources.find(source => source.type === 'hls');
+        return JSON.stringify(transformedResults);
+        
+    } catch (error) {
+        console.log('Fetch error:', error);
+    }    
+}
 
-        // 3. Get episode number from URL
-        const urlObj = new URL(url);
-        const episodeNumber = urlObj.searchParams.get('episode');
-
-        // 4. Get anime metadata from Aniwatch
-        const animeId = encodedID.split('-')[0]; // Adjust based on actual ID structure
-        const animeResponse = await fetch(`https://aniwatch-api-one-rosy.vercel.app/aniwatch/anime/${animeId}`);
-        const animeData = JSON.parse(animeResponse);
-
-        // 5. Search Jimaku using AniList ID from Aniwatch data
-        let jimakuEntry;
-        if (animeData.info.anilist_id) {
-            const jimakuSearch = await fetch(`https://jimaku.cc/api/entries/search?anilist_id=${animeData.info.anilist_id}`, {
-                headers: { 'Authorization': 'AAAAAAAABlkuAS5Gu5CmdaJFx5GDWXpl5TGqDsn00SOfknKmwQMPEko-1w' }
-            });
-            const jimakuData = JSON.parse(jimakuSearch);
-            jimakuEntry = jimakuData[0];
-        }
-
-        // 6. Fallback to title search if AniList ID missing
-        if (!jimakuEntry) {
-            const titleSearch = await fetch(`https://jimaku.cc/api/entries/search?query=${encodeURIComponent(animeData.info.name)}`, {
-                headers: { 'Authorization': 'AAAAAAAABlkuAS5Gu5CmdaJFx5GDWXpl5TGqDsn00SOfknKmwQMPEko-1w' }
-            });
-            jimakuEntry = JSON.parse(titleSearch)[0];
-        }
-
-        // 7. Get subtitles for episode
-        let subtitleUrl = null;
-        if (jimakuEntry) {
-            const filesResponse = await fetch(`https://jimaku.cc/api/entries/${jimakuEntry.id}/files?episode=${episodeNumber}`, {
-                headers: { 'Authorization': 'AAAAAAAABlkuAS5Gu5CmdaJFx5GDWXpl5TGqDsn00SOfknKmwQMPEko-1w' }
-            });
-            const files = JSON.parse(filesResponse);
-            const subFile = files.find(f => f.name.endsWith('.vtt'));
-            subtitleUrl = subFile?.url;
-        }
-
-        return JSON.stringify({
-            stream: hlsSource?.url || null,
-            subtitles: subtitleUrl
-        });
-
+async function extractStreamUrl(url) {
+    try {
+       const urlObj = new URL(url);
+       const animeName = decodeURIComponent(urlObj.searchParams.get('animeName'));
+       const episodeNumber = urlObj.searchParams.get('episodeNumber');
+       
+       const match = url.match(/https:\/\/aniwatchtv\.to\/(.+)$/);
+       const encodedID = match[1].split('?')[0];
+       const response = await fetch(`https://aniwatch-api-one-rosy.vercel.app/aniwatch/episode-srcs?id=${encodedID}&server=vidstreaming&category=sub`);
+       const data = JSON.parse(response);
+       
+       const hlsSource = data.sources.find(source => source.type === 'hls');
+        
+       let subtitleUrl = null;
+       if (animeName && episodeNumber) {
+           try {
+               const searchResponse = await fetch('https://jimaku.cc/api/entries/search', {
+                   headers: { Authorization: 'AAAAAAAABlkuAS5Gu5CmdaJFx5GDWXpl5TGqDsn00SOfknKmwQMPEko-1w' }
+               });
+               const searchData = await searchResponse.json();
+               const entry = searchData.find(entry => 
+                   entry.name === animeName || 
+                   entry.english_name === animeName ||
+                   entry.japanese_name === animeName
+               );
+               if (entry) {
+                   const filesResponse = await fetch(`https://jimaku.cc/api/entries/${entry.id}/files?episode=${episodeNumber}`, {
+                       headers: { Authorization: 'AAAAAAAABlkuAS5Gu5CmdaJFx5GDWXpl5TGqDsn00SOfknKmwQMPEko-1w' }
+                   });
+                   const filesData = await filesResponse.json();
+                   const subtitleFile = filesData.find(file => file.url.endsWith('.srt'));
+                   subtitleUrl = subtitleFile?.url || null;
+               }
+           } catch (subError) {
+               console.log('Jimaku API error:', subError);
+           }
+       }
+       
+       const result = {
+           stream: hlsSource?.url || null,
+           subtitles: subtitleUrl
+       };
+       
+       return JSON.stringify(result);
     } catch (error) {
         console.log('Fetch error:', error);
         return JSON.stringify({ stream: null, subtitles: null });
