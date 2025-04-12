@@ -18,6 +18,7 @@ async function searchResults(keyword) {
         const data = json?.props?.pageProps?.data;
         if(data == null) throw('Error obtaining data');
 
+        // Get AniList IDs with subtitles from Jimaku
         const animesWithSubtitles = await GetAnimes();
         
         for(let entry of data) {
@@ -34,8 +35,7 @@ async function searchResults(keyword) {
 
         return JSON.stringify(shows);
     } catch (error) {
-        console.log('Test');
-        console.log('Fetch error: ' + error.message);
+        console.log('Search error: ' + error.message);
         return JSON.stringify([]);
     }
 }
@@ -46,8 +46,6 @@ async function searchResults(keyword) {
  * @returns {Promise<string>} A promise that resolves with a JSON string containing the details in the format: `[{"description": "Description", "aliases": "Aliases", "airdate": "Airdate"}]`
  */
 async function extractDetails(url) {
-    const REGEX = /style_specs_header_year.+?>.+([0-9]{4})[\s\S]+style_specs_container_middle.+?>([\s\S]+?)</g;
-
     try {
         const response = await fetch(url);
         const html = typeof response === 'object' ? await response.text() : await response;
@@ -100,11 +98,13 @@ async function extractEpisodes(url) {
         if (json == null) throw ('Error parsing NEXT_DATA json');
 
         const origin = json?.props?.pageProps?.data?._id;
+        const anilistId = json?.props?.pageProps?.data?.mappings?.anilist;
 
         const episodesList = json?.props?.pageProps?.data?.ep;
         if(episodesList == null) throw('Error obtaining episodes');
 
-        const episodesWithSubtitlesJson = await GetEpisodes(json.props.pageProps.data?.mappings?.anilist);
+        // Get episodes with subtitles from Jimaku
+        const episodesWithSubtitlesJson = await GetEpisodes(anilistId);
         const episodesWithSubtitles = episodesWithSubtitlesJson.map((entry) => entry?.episode);
 
         for(let i=1,len=episodesList.length; i<=len; i++) {
@@ -112,17 +112,17 @@ async function extractEpisodes(url) {
                 continue;
             }
 
-            let url = `${ BASE_URL }${ episodesList[i] }?origin=${ origin }`;
+            let url = `${BASE_URL}${episodesList[i]}?origin=${origin}`;
 
             episodes.push({
                 href: url,
                 number: i
-            })
+            });
         }
 
         return JSON.stringify(episodes);
     } catch (error) {
-        console.log('Fetch error: ' + error.message);
+        console.log('Episodes error: ' + error.message);
         return JSON.stringify([]);
     }
 }
@@ -141,13 +141,15 @@ async function extractStreamUrl(url) {
         if (json == null) throw ('Error parsing NEXT_DATA json');
 
         const streamUrl = json?.props?.pageProps?.episode?.streamLink;
-        const subtitles = GetSubtitles(json.props.pageProps?.animeData?.mappings?.anilist, json.props.pageProps.episode?.number);
-        if(subtitles == null) throw('Invalid data while attempting to get subtitles');
-
+        const anilistId = json?.props?.pageProps?.animeData?.mappings?.anilist;
+        const episodeNumber = json?.props?.pageProps?.episode?.number;
+        
+        const subtitles = await GetSubtitles(anilistId, episodeNumber);
+        
         return JSON.stringify({ stream: streamUrl, subtitles: subtitles });
 
     } catch (error) {
-        console.log('Error extracting stream url: ' + error.message);
+        console.log('Stream error: ' + error.message);
         return JSON.stringify({ stream: null, subtitles: null });
     }
 }
@@ -177,18 +179,13 @@ function trimHtml(html, startString, endString) {
  */
 async function GetAnimes() {
     const API_KEY = 'AAAAAAAABlkuAS5Gu5CmdaJFx5GDWXpl5TGqDsn00SOfknKmwQMPEko-1w';
-    const SEARCH_URL = 'https://jimaku.app/api/entries/search';
+    const SEARCH_URL = 'https://jimaku.app/api/entries/search?anime=true';
 
     try {
         const response = await fetch(SEARCH_URL, {
             method: 'GET',
             headers: {
-                'Authorization': API_KEY,
-                'Content-Type': 'application/json'
-            },
-            // Only search for anime entries
-            params: {
-                anime: true
+                'Authorization': API_KEY
             }
         });
 
@@ -198,7 +195,7 @@ async function GetAnimes() {
 
         const data = await response.json();
         
-        // Extract the AniList IDs from the entries
+        // Return only the AniList IDs
         return data
             .filter(entry => entry.anilist_id !== null)
             .map(entry => entry.anilist_id);
@@ -220,14 +217,13 @@ async function GetEpisodes(anilistId) {
     }
 
     const API_KEY = 'AAAAAAAABlkuAS5Gu5CmdaJFx5GDWXpl5TGqDsn00SOfknKmwQMPEko-1w';
-    const SEARCH_URL = 'https://jimaku.app/api/entries/search';
+    const SEARCH_URL = `https://jimaku.app/api/entries/search?anime=true&anilist_id=${anilistId}`;
 
     try {
-        const response = await fetch(`${SEARCH_URL}?anime=true&anilist_id=${anilistId}`, {
+        const response = await fetch(SEARCH_URL, {
             method: 'GET',
             headers: {
-                'Authorization': API_KEY,
-                'Content-Type': 'application/json'
+                'Authorization': API_KEY
             }
         });
 
@@ -243,11 +239,12 @@ async function GetEpisodes(anilistId) {
 
         // Get the entry ID to fetch its files
         const entryId = entries[0].id;
-        const filesResponse = await fetch(`https://jimaku.app/api/entries/${entryId}/files`, {
+        const filesUrl = `https://jimaku.app/api/entries/${entryId}/files`;
+        
+        const filesResponse = await fetch(filesUrl, {
             method: 'GET',
             headers: {
-                'Authorization': API_KEY,
-                'Content-Type': 'application/json'
+                'Authorization': API_KEY
             }
         });
 
@@ -257,26 +254,25 @@ async function GetEpisodes(anilistId) {
 
         const files = await filesResponse.json();
         
-        // Extract episode numbers from filenames
-        // This is a simplistic approach - the actual implementation may need refinement
+        // Process files to extract episode numbers
         const episodeObjects = [];
-        const episodeSet = new Set();
+        const episodeRegex = /[Ee]p(?:isode)?[\s._-]*(\d+)|[Ee](\d+)|(?:^|\D)(\d+)(?:\D|$)/;
+        const processedEpisodes = new Set();
         
-        files.forEach(file => {
-            // Match episode number format in filename
-            const episodeMatch = file.name.match(/[eE](\d+)|episode\s*(\d+)|Episode\s*(\d+)/);
-            if (episodeMatch) {
-                const episodeNumber = parseInt(episodeMatch[1] || episodeMatch[2] || episodeMatch[3]);
-                if (!isNaN(episodeNumber) && !episodeSet.has(episodeNumber)) {
-                    episodeSet.add(episodeNumber);
+        for (const file of files) {
+            const match = file.name.match(episodeRegex);
+            if (match) {
+                const episodeNum = parseInt(match[1] || match[2] || match[3]);
+                if (!isNaN(episodeNum) && !processedEpisodes.has(episodeNum)) {
+                    processedEpisodes.add(episodeNum);
                     episodeObjects.push({
-                        episode: episodeNumber,
-                        fileUrl: file.url,
-                        fileName: file.name
+                        episode: episodeNum,
+                        url: file.url,
+                        filename: file.name
                     });
                 }
             }
-        });
+        }
         
         return episodeObjects;
 
@@ -290,9 +286,9 @@ async function GetEpisodes(anilistId) {
  * Gets the subtitle URL for a specific episode
  * @param {number} anilistId The AniList ID of the anime
  * @param {number} episodeNr The episode number
- * @returns {string|null} The URL to the subtitle file or null if not found
+ * @returns {Promise<string|null>} A promise that resolves with the subtitle URL or null if not found
  */
-function GetSubtitles(anilistId, episodeNr) {
+async function GetSubtitles(anilistId, episodeNr) {
     if (
         anilistId == null ||
         isNaN(parseInt(anilistId)) ||
@@ -302,8 +298,17 @@ function GetSubtitles(anilistId, episodeNr) {
         return null;
     }
 
-    // This is an asynchronous operation but needs to be synchronous to maintain the same function signature
-    // So we'll return a URL that can be used to fetch the subtitles later
-    // This is a workaround - ideally this would be an async function
-    return `https://jimaku.app/api/proxy/subtitles?anilist_id=${anilistId}&episode=${episodeNr}`;
+    try {
+        const episodesData = await GetEpisodes(anilistId);
+        const episode = episodesData.find(ep => ep.episode === episodeNr);
+        
+        if (episode && episode.url) {
+            return episode.url;
+        }
+        
+        return null;
+    } catch (error) {
+        console.log('[JIMAKU][GetSubtitles] Error: ' + error.message);
+        return null;
+    }
 }
